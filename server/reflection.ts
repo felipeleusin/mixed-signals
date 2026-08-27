@@ -2,13 +2,12 @@ import {Signal} from '@preact/signals-core';
 import {
   formatNotificationMessage,
   SIGNAL_UPDATE_METHOD,
-  SignalUpdateMode,
 } from '../shared/protocol.ts';
 import type {Instances} from './instances.ts';
 
 type SignalId = number;
 type ClientId = string;
-type DeltaMode = SignalUpdateMode.Append | SignalUpdateMode.Merge;
+type DeltaMode = 'append' | 'merge';
 
 const FINAL_NOTIFICATION_DELAY = 1_000;
 
@@ -288,11 +287,7 @@ export class Reflection {
       for (const id of ids) {
         this.rpc.send(
           clientId,
-          formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
-            id,
-            null,
-            SignalUpdateMode.Seal,
-          ]),
+          formatNotificationMessage(SIGNAL_UPDATE_METHOD, [id, null, 'seal']),
         );
       }
     }
@@ -407,7 +402,7 @@ export class Reflection {
       ) {
         return {
           value: newValue.slice(oldValue.length),
-          mode: SignalUpdateMode.Append,
+          mode: 'append',
         };
       }
       // Same length, same elements — no update needed.
@@ -448,7 +443,7 @@ export class Reflection {
       }
 
       // Removals were ruled out above, so no changed keys means no update.
-      return hasChanges ? {value: changes, mode: SignalUpdateMode.Merge} : null;
+      return hasChanges ? {value: changes, mode: 'merge'} : null;
     }
 
     if (
@@ -459,7 +454,7 @@ export class Reflection {
       if (newValue.length === oldValue.length) return null;
       return {
         value: newValue.slice(oldValue.length),
-        mode: SignalUpdateMode.Append,
+        mode: 'append',
       };
     }
 

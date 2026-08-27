@@ -95,13 +95,13 @@ Properties beginning with `_` and all functions are stripped from serialized obj
 
 When a signal's value changes, the server may send only the diff instead of the full value:
 
-| Mode     | Name     | Applies when                                               | Effect on client                                                     |
-| -------- | -------- | ---------------------------------------------------------- | -------------------------------------------------------------------- |
-| _(none)_ | replace  | General case                                               | Full replacement: `sig.value = newValue`                             |
-| `0`      | seal     | The signal will never change again                         | Keep the value and release the signal subscription                   |
-| `1`      | append   | Array grew by appending, or string got longer by appending | `sig.value = [...current, ...delta]` / `sig.value = current + delta` |
-| `2`      | merge    | Plain object with changed keys                             | `sig.value = {...current, ...delta}`                                 |
-| `3`      | splice   | Array mutation with start/deleteCount/items                | `Array.prototype.splice` applied immutably                           |
+| Mode     | Applies when                                               | Effect on client                                                     |
+| -------- | ---------------------------------------------------------- | -------------------------------------------------------------------- |
+| _(none)_ | General case                                               | Full replacement: `sig.value = newValue`                             |
+| `seal`   | The signal will never change again                         | Keep the value and release the signal subscription                   |
+| `append` | Array grew by appending, or string got longer by appending | `sig.value = [...current, ...delta]` / `sig.value = current + delta` |
+| `merge`  | Plain object with changed keys                             | `sig.value = {...current, ...delta}`                                 |
+| `splice` | Array mutation with start/deleteCount/items                | `Array.prototype.splice` applied immutably                           |
 
 ---
 
@@ -142,7 +142,7 @@ value — `return {diff: this.diff}`, not `return {diff: this.diff.value}`.
 **Settled data opts out of the protocol.** `rpc.markFinal(sig)` promises a
 signal will never change again. It serializes with `"f": 1`, so observing it
 produces no `@W` and the server never subscribes to it; clients already
-watching it receive a debounced `N:@S:<id>,null,0` seal update and stop treating
+watching it receive a debounced `N:@S:<id>,null,"seal"` update and stop treating
 it as watched. The server drops its subscription immediately and batches seal
 notifications for one second. The promise is permanent: a reconnect or process
 change never makes a held signal live again.

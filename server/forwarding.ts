@@ -8,7 +8,6 @@ import {
   REFRESH_MODELS_METHOD,
   ROOT_NOTIFICATION_METHOD,
   SIGNAL_UPDATE_METHOD,
-  SignalUpdateMode,
   type Transport,
   UNWATCH_SIGNALS_METHOD,
   WATCH_SIGNALS_METHOD,
@@ -209,7 +208,7 @@ export class ForwardedUpstream {
         // Parse params: [signalId, value, mode?]
         const params = parseWireParams(parsed.payload);
         const [signalId, value, mode] = params;
-        if (mode === SignalUpdateMode.Seal) {
+        if (mode === 'seal') {
           this.forwardFinalSignal(signalId as SignalId);
           return;
         }
@@ -227,10 +226,9 @@ export class ForwardedUpstream {
           ? addPrefix(this.prefix, value)
           : value;
 
-        const outParams =
-          mode !== undefined
-            ? [prefixedId, rewrittenValue, mode]
-            : [prefixedId, rewrittenValue];
+        const outParams = mode
+          ? [prefixedId, rewrittenValue, mode]
+          : [prefixedId, rewrittenValue];
         const message = formatNotificationMessage(
           SIGNAL_UPDATE_METHOD,
           outParams,
@@ -299,7 +297,7 @@ export class ForwardedUpstream {
     const message = formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
       `${this.prefix}${SEP}${signalId}`,
       null,
-      SignalUpdateMode.Seal,
+      'seal',
     ]);
     for (const clientId of recipients) this.host.send(clientId, message);
   }
@@ -399,7 +397,7 @@ export class ForwardedUpstream {
         formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
           signalId,
           null,
-          SignalUpdateMode.Seal,
+          'seal',
         ]),
       );
     }

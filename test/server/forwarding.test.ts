@@ -11,7 +11,6 @@ import {
   parseWireMessage,
   parseWireParams,
   SIGNAL_UPDATE_METHOD,
-  SignalUpdateMode,
   type Transport,
   UNWATCH_SIGNALS_METHOD,
   WATCH_SIGNALS_METHOD,
@@ -506,7 +505,7 @@ describe('protocol-level forwarding', () => {
     const finalFrame = formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
       signalId,
       null,
-      SignalUpdateMode.Seal,
+      'seal',
     ]);
 
     browserTransport.send(

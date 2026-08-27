@@ -7,7 +7,6 @@ import {
   parseWireMessage,
   parseWireParams,
   SIGNAL_UPDATE_METHOD,
-  SignalUpdateMode,
 } from '../../shared/protocol.ts';
 import {Counter} from '../helpers.ts';
 
@@ -20,7 +19,7 @@ class FakeSender {
   }
 }
 
-function parseUpdate(message: string): [number, unknown, SignalUpdateMode?] {
+function parseUpdate(message: string): [number, unknown, string?] {
   const parsed = parseWireMessage(message);
   expect(parsed).toMatchObject({
     type: 'notification',
@@ -28,7 +27,7 @@ function parseUpdate(message: string): [number, unknown, SignalUpdateMode?] {
   });
   if (!parsed || parsed.type !== 'notification')
     throw new Error('Expected a signal update notification');
-  return parseWireParams<[number, unknown, SignalUpdateMode?]>(parsed.payload);
+  return parseWireParams<[number, unknown, string?]>(parsed.payload);
 }
 
 function setupCounter(
@@ -106,11 +105,7 @@ describe('Reflection', () => {
       vi.advanceTimersByTime(1_000);
 
       const sealFrame = (id: number) =>
-        formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
-          id,
-          null,
-          SignalUpdateMode.Seal,
-        ]);
+        formatNotificationMessage(SIGNAL_UPDATE_METHOD, [id, null, 'seal']);
       expect(sender.sent).toEqual([
         {clientId: 'c1', message: sealFrame(countId)},
         {clientId: 'c1', message: sealFrame(nameId)},
@@ -496,7 +491,7 @@ describe('Reflection', () => {
       const [id, value, mode] = parseUpdate(relevant[0].message);
       expect(id).toBe(nameId);
       expect(value).toBe('-updated');
-      expect(mode).toBe(SignalUpdateMode.Append);
+      expect(mode).toBe('append');
     });
 
     it('sends nothing on re-watch when the value has not changed', () => {
@@ -528,7 +523,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(signalId);
       expect(value).toEqual([2, 3]);
-      expect(mode).toBe(SignalUpdateMode.Append);
+      expect(mode).toBe('append');
     });
 
     it('sends merge deltas for changed object keys', () => {
@@ -545,7 +540,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(signalId);
       expect(value).toEqual({done: true});
-      expect(mode).toBe(SignalUpdateMode.Merge);
+      expect(mode).toBe('merge');
     });
 
     it('falls back to full replacements when no delta mode applies', () => {
@@ -589,7 +584,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(itemsId);
       expect(value).toEqual(['d', 'e']);
-      expect(mode).toBe(SignalUpdateMode.Append);
+      expect(mode).toBe('append');
     });
 
     it('sends full replacement for non-append array change', () => {
@@ -617,7 +612,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(metaId);
       expect(value).toEqual({version: 2});
-      expect(mode).toBe(SignalUpdateMode.Merge);
+      expect(mode).toBe('merge');
     });
 
     it('sends delta for string append', () => {
@@ -632,7 +627,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(nameId);
       expect(value).toBe('-extended');
-      expect(mode).toBe(SignalUpdateMode.Append);
+      expect(mode).toBe('append');
     });
 
     it('sends full replacement when no delta applies', () => {
@@ -658,7 +653,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(metaId);
       expect(value).toEqual({extra: 2});
-      expect(mode).toBe(SignalUpdateMode.Merge);
+      expect(mode).toBe('merge');
     });
 
     it('sends no update for a rebuilt object with identical entries', () => {
@@ -786,7 +781,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(metaId);
       expect(value).toEqual({version: 2});
-      expect(mode).toBe(SignalUpdateMode.Merge);
+      expect(mode).toBe('merge');
     });
 
     it('sends merge when a key the wire never saw is removed', () => {
@@ -803,7 +798,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(metaId);
       expect(value).toEqual({version: 2});
-      expect(mode).toBe(SignalUpdateMode.Merge);
+      expect(mode).toBe('merge');
     });
 
     it('sends full replacement when an object value becomes an array', () => {

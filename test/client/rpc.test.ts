@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import type {WireContext} from '../../client/reflection.ts';
 import {RPCClient} from '../../client/rpc.ts';
-import {SignalUpdateMode, type Transport} from '../../shared/protocol.ts';
+import type {Transport} from '../../shared/protocol.ts';
 import {ReflectedCounter} from '../helpers.ts';
 
 class FakeTransport implements Transport {
@@ -300,7 +300,7 @@ describe('RPCClient', () => {
       const transport = new FakeTransport();
       const client = new RPCClient(transport, createContext());
       const sig = client.reflection.getOrCreateSignal(5, [1, 2]);
-      transport.emit(`N:@S:5,[3,4],${SignalUpdateMode.Append}`);
+      transport.emit('N:@S:5,[3,4],"append"');
       expect(sig.peek()).toEqual([1, 2, 3, 4]);
     });
 
@@ -323,7 +323,7 @@ describe('RPCClient', () => {
       expect(client.root.items[0].peek()).toBe('alpha-updated');
 
       // Append update
-      transport.emit(`N:@S:3,"-updated",${SignalUpdateMode.Append}`);
+      transport.emit('N:@S:3,"-updated","append"');
       expect(client.root.label.peek()).toBe('list-updated');
     });
 
@@ -384,7 +384,7 @@ describe('RPCClient', () => {
       vi.advanceTimersByTime(10);
       expect(transport.sent).toEqual(['N:@W:1']);
 
-      transport.emit(`N:@S:1,null,${SignalUpdateMode.Seal}`);
+      transport.emit('N:@S:1,null,"seal"');
       stop();
       client.root.count.subscribe(() => undefined);
       vi.advanceTimersByTime(10);
