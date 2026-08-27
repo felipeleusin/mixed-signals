@@ -1,7 +1,6 @@
 import type {Signal} from '@preact/signals-core';
 import {
   type ConnectionInfo,
-  FINAL_SIGNALS_METHOD,
   formatCallMessage,
   formatErrorMessage,
   formatNotificationMessage,
@@ -584,8 +583,6 @@ export class RPCClient<TRoot = DefaultReflectedRoot> {
     } else if (method === SIGNAL_UPDATE_METHOD) {
       const [id, value, mode] = params;
       this.reflection.handleUpdate(id, value, mode);
-    } else if (method === FINAL_SIGNALS_METHOD) {
-      this.reflection.markSignalsFinal(params as Array<number | string>);
     } else {
       for (const listener of this.notificationListeners) {
         listener(method, params);

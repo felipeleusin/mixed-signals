@@ -1,14 +1,16 @@
 import {Signal} from '@preact/signals-core';
 import {
-  FINAL_SIGNALS_METHOD,
   formatNotificationMessage,
   SIGNAL_UPDATE_METHOD,
+  SignalUpdateMode,
 } from '../shared/protocol.ts';
 import type {Instances} from './instances.ts';
 
 type SignalId = number;
 type ClientId = string;
-type DeltaMode = 'append' | 'merge';
+type DeltaMode = SignalUpdateMode.Append | SignalUpdateMode.Merge;
+
+const FINAL_NOTIFICATION_DELAY = 1_000;
 
 interface RpcSender {
   send(clientId: string, message: string): void;
@@ -37,6 +39,8 @@ export class Reflection {
   private signalUnsubscribers = new Map<SignalId, () => void>();
   private lastSentValues = new Map<string, any>();
   private finalSignals = new WeakSet<Signal<any>>();
+  private pendingFinalSignals = new Map<ClientId, Set<SignalId>>();
+  private finalNotificationTimer: ReturnType<typeof setTimeout> | undefined;
   private sentModels = new Map<ClientId, Set<string>>();
   private nextSignalId = 1;
   private rpc: RpcSender;
@@ -248,9 +252,6 @@ export class Reflection {
   }
 
   markFinal(signals: Iterable<Signal<any>>) {
-    // Only watchers need an @F; everyone else sees the flag on the next
-    // serialization.
-    const idsByClient = new Map<ClientId, SignalId[]>();
     for (const sig of signals) {
       if (this.finalSignals.has(sig)) continue;
       this.finalSignals.add(sig);
@@ -261,23 +262,39 @@ export class Reflection {
       if (!subs) continue;
 
       for (const clientId of subs) {
-        let ids = idsByClient.get(clientId);
-        if (!ids) {
-          ids = [];
-          idsByClient.set(clientId, ids);
-        }
-        ids.push(id);
+        let ids = this.pendingFinalSignals.get(clientId);
+        if (!ids) this.pendingFinalSignals.set(clientId, (ids = new Set()));
+        ids.add(id);
       }
       this.subscriptions.delete(id);
       this.signalUnsubscribers.get(id)?.();
       this.signalUnsubscribers.delete(id);
     }
 
-    for (const [clientId, ids] of idsByClient) {
-      this.rpc.send(
-        clientId,
-        formatNotificationMessage(FINAL_SIGNALS_METHOD, ids),
+    if (this.pendingFinalSignals.size > 0 && !this.finalNotificationTimer) {
+      this.finalNotificationTimer = setTimeout(
+        () => this.flushFinalNotifications(),
+        FINAL_NOTIFICATION_DELAY,
       );
+    }
+  }
+
+  private flushFinalNotifications() {
+    this.finalNotificationTimer = undefined;
+    const pending = this.pendingFinalSignals;
+    this.pendingFinalSignals = new Map();
+
+    for (const [clientId, ids] of pending) {
+      for (const id of ids) {
+        this.rpc.send(
+          clientId,
+          formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
+            id,
+            null,
+            SignalUpdateMode.Seal,
+          ]),
+        );
+      }
     }
   }
 
@@ -326,6 +343,7 @@ export class Reflection {
     }
 
     this.sentModels.delete(clientId);
+    this.pendingFinalSignals.delete(clientId);
   }
 
   private disposeSignalIfUnwatched(signalId: SignalId) {
@@ -387,7 +405,10 @@ export class Reflection {
         newValue.length > oldValue.length &&
         oldValue.every((value, index) => value === newValue[index])
       ) {
-        return {value: newValue.slice(oldValue.length), mode: 'append'};
+        return {
+          value: newValue.slice(oldValue.length),
+          mode: SignalUpdateMode.Append,
+        };
       }
       // Same length, same elements — no update needed.
       if (
@@ -427,7 +448,7 @@ export class Reflection {
       }
 
       // Removals were ruled out above, so no changed keys means no update.
-      return hasChanges ? {value: changes, mode: 'merge'} : null;
+      return hasChanges ? {value: changes, mode: SignalUpdateMode.Merge} : null;
     }
 
     if (
@@ -436,7 +457,10 @@ export class Reflection {
       newValue.startsWith(oldValue)
     ) {
       if (newValue.length === oldValue.length) return null;
-      return {value: newValue.slice(oldValue.length), mode: 'append'};
+      return {
+        value: newValue.slice(oldValue.length),
+        mode: SignalUpdateMode.Append,
+      };
     }
 
     return {value: newValue};

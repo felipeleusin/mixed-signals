@@ -1,6 +1,7 @@
 import {type Signal, Signal as SignalCtor, signal} from '@preact/signals-core';
 import {
   REFRESH_MODELS_METHOD,
+  SignalUpdateMode,
   UNWATCH_SIGNALS_METHOD,
   WATCH_SIGNALS_METHOD,
 } from '../shared/protocol.ts';
@@ -448,13 +449,6 @@ export class ClientReflection {
     this.watchedSignals.delete(sig);
   }
 
-  markSignalsFinal(ids: Iterable<SignalId>) {
-    for (const id of ids) {
-      const sig = this.getSignalById(id);
-      if (sig) this.markSignalFinal(sig);
-    }
-  }
-
   syncSignalSnapshot(id: SignalId, value: any): Signal<any> {
     const sig = this.getOrCreateSignal(id, value);
     sig.value = value;
@@ -670,11 +664,16 @@ export class ClientReflection {
     return model;
   }
 
-  handleUpdate(id: SignalId, value: any, mode?: string) {
+  handleUpdate(id: SignalId, value: any, mode?: SignalUpdateMode) {
     const sig = this.getSignalById(id);
     if (!sig) return;
 
-    if (!mode) {
+    if (mode === SignalUpdateMode.Seal) {
+      this.markSignalFinal(sig);
+      return;
+    }
+
+    if (mode === undefined) {
       sig.value = value;
       return;
     }
@@ -682,7 +681,7 @@ export class ClientReflection {
     const current = sig.value;
 
     switch (mode) {
-      case 'append':
+      case SignalUpdateMode.Append:
         // Streaming text and immutable array pushes both land here.
         if (Array.isArray(current)) {
           sig.value = [...current, ...value];
@@ -691,13 +690,13 @@ export class ClientReflection {
         }
         break;
 
-      case 'merge':
+      case SignalUpdateMode.Merge:
         if (current && typeof current === 'object') {
           sig.value = {...current, ...value};
         }
         break;
 
-      case 'splice':
+      case SignalUpdateMode.Splice:
         // Reserved for richer array diffs; keep client support even if rare today.
         if (Array.isArray(current)) {
           const {start, deleteCount, items} = value;

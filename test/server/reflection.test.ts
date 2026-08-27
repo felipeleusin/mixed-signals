@@ -1,13 +1,13 @@
 import {signal} from '@preact/signals-core';
-import {beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {Instances} from '../../server/instances.ts';
 import {Reflection} from '../../server/reflection.ts';
 import {
-  FINAL_SIGNALS_METHOD,
   formatNotificationMessage,
   parseWireMessage,
   parseWireParams,
   SIGNAL_UPDATE_METHOD,
+  SignalUpdateMode,
 } from '../../shared/protocol.ts';
 import {Counter} from '../helpers.ts';
 
@@ -20,7 +20,7 @@ class FakeSender {
   }
 }
 
-function parseUpdate(message: string): [number, unknown, string?] {
+function parseUpdate(message: string): [number, unknown, SignalUpdateMode?] {
   const parsed = parseWireMessage(message);
   expect(parsed).toMatchObject({
     type: 'notification',
@@ -28,7 +28,7 @@ function parseUpdate(message: string): [number, unknown, string?] {
   });
   if (!parsed || parsed.type !== 'notification')
     throw new Error('Expected a signal update notification');
-  return parseWireParams<[number, unknown, string?]>(parsed.payload);
+  return parseWireParams<[number, unknown, SignalUpdateMode?]>(parsed.payload);
 }
 
 function setupCounter(
@@ -58,6 +58,10 @@ describe('Reflection', () => {
     reflection = new Reflection(sender, instances);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('final signals', () => {
     it('serializes a final signal with the f flag and never subscribes to it', () => {
       reflection.registerModel('Counter', Counter);
@@ -79,28 +83,45 @@ describe('Reflection', () => {
       expect(sender.sent).toEqual([]);
     });
 
-    it('notifies every subscribed client when a signal becomes final', () => {
-      const {counter, countId} = setupCounter(reflection, instances, 'c1');
+    it('debounces seal notifications while unsubscribing immediately', () => {
+      vi.useFakeTimers();
+      const {counter, countId, nameId} = setupCounter(
+        reflection,
+        instances,
+        'c1',
+      );
       reflection.serialize(counter, 'c2');
       reflection.serialize(counter, 'c3');
       reflection.unwatch('c3', countId);
 
       reflection.markFinal([counter.count]);
+      reflection.markFinal([counter.name]);
 
-      const finalFrame = formatNotificationMessage(FINAL_SIGNALS_METHOD, [
-        countId,
-      ]);
-      expect(sender.sent).toEqual([
-        {clientId: 'c1', message: finalFrame},
-        {clientId: 'c2', message: finalFrame},
-      ]);
+      expect(vi.getTimerCount()).toBe(1);
+      expect(sender.sent).toEqual([]);
 
-      sender.sent.length = 0;
       counter.count.value = 99;
       expect(sender.sent).toEqual([]);
+
+      vi.advanceTimersByTime(1_000);
+
+      const sealFrame = (id: number) =>
+        formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
+          id,
+          null,
+          SignalUpdateMode.Seal,
+        ]);
+      expect(sender.sent).toEqual([
+        {clientId: 'c1', message: sealFrame(countId)},
+        {clientId: 'c1', message: sealFrame(nameId)},
+        {clientId: 'c2', message: sealFrame(countId)},
+        {clientId: 'c2', message: sealFrame(nameId)},
+        {clientId: 'c3', message: sealFrame(nameId)},
+      ]);
     });
 
     it('re-serializes a final signal inline instead of as a held ref', () => {
+      vi.useFakeTimers();
       const {counter, serialized} = setupCounter(reflection, instances, 'c1');
       reflection.watch('c1', serialized.count['@S']);
       reflection.markFinal([counter.count]);
@@ -475,7 +496,7 @@ describe('Reflection', () => {
       const [id, value, mode] = parseUpdate(relevant[0].message);
       expect(id).toBe(nameId);
       expect(value).toBe('-updated');
-      expect(mode).toBe('append');
+      expect(mode).toBe(SignalUpdateMode.Append);
     });
 
     it('sends nothing on re-watch when the value has not changed', () => {
@@ -507,7 +528,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(signalId);
       expect(value).toEqual([2, 3]);
-      expect(mode).toBe('append');
+      expect(mode).toBe(SignalUpdateMode.Append);
     });
 
     it('sends merge deltas for changed object keys', () => {
@@ -524,7 +545,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(signalId);
       expect(value).toEqual({done: true});
-      expect(mode).toBe('merge');
+      expect(mode).toBe(SignalUpdateMode.Merge);
     });
 
     it('falls back to full replacements when no delta mode applies', () => {
@@ -568,7 +589,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(itemsId);
       expect(value).toEqual(['d', 'e']);
-      expect(mode).toBe('append');
+      expect(mode).toBe(SignalUpdateMode.Append);
     });
 
     it('sends full replacement for non-append array change', () => {
@@ -580,8 +601,8 @@ describe('Reflection', () => {
       counter.items.value = ['x', 'y'];
       const relevant = sender.sent.filter((m) => m.clientId === clientId);
       expect(relevant.length).toBeGreaterThan(0);
-      const last = relevant[relevant.length - 1].message;
-      expect(last).not.toContain('"append"');
+      const [, , mode] = parseUpdate(relevant[relevant.length - 1].message);
+      expect(mode).toBeUndefined();
     });
 
     it('sends delta for object merge', () => {
@@ -596,7 +617,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(metaId);
       expect(value).toEqual({version: 2});
-      expect(mode).toBe('merge');
+      expect(mode).toBe(SignalUpdateMode.Merge);
     });
 
     it('sends delta for string append', () => {
@@ -611,7 +632,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(nameId);
       expect(value).toBe('-extended');
-      expect(mode).toBe('append');
+      expect(mode).toBe(SignalUpdateMode.Append);
     });
 
     it('sends full replacement when no delta applies', () => {
@@ -621,9 +642,8 @@ describe('Reflection', () => {
       counter.name.value = 'completely different';
       const relevant = sender.sent.filter((m) => m.clientId === clientId);
       expect(relevant.length).toBeGreaterThan(0);
-      const last = relevant[relevant.length - 1].message;
-      expect(last).not.toContain('"append"');
-      expect(last).not.toContain('"merge"');
+      const [, , mode] = parseUpdate(relevant[relevant.length - 1].message);
+      expect(mode).toBeUndefined();
     });
 
     it('sends merge delta when a key is added', () => {
@@ -638,7 +658,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(metaId);
       expect(value).toEqual({extra: 2});
-      expect(mode).toBe('merge');
+      expect(mode).toBe(SignalUpdateMode.Merge);
     });
 
     it('sends no update for a rebuilt object with identical entries', () => {
@@ -766,7 +786,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(metaId);
       expect(value).toEqual({version: 2});
-      expect(mode).toBe('merge');
+      expect(mode).toBe(SignalUpdateMode.Merge);
     });
 
     it('sends merge when a key the wire never saw is removed', () => {
@@ -783,7 +803,7 @@ describe('Reflection', () => {
       );
       expect(id).toBe(metaId);
       expect(value).toEqual({version: 2});
-      expect(mode).toBe('merge');
+      expect(mode).toBe(SignalUpdateMode.Merge);
     });
 
     it('sends full replacement when an object value becomes an array', () => {

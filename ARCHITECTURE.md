@@ -70,8 +70,7 @@ All messages are compact, newline-free text strings.
 | ---------------------------- | -------------------------------------------------------------------------- |
 | `R{id}:{result}`             | Successful response to call `{id}`. `{result}` is a single JSON value.     |
 | `E{id}:{error}`              | Error response to call `{id}`. `{error}` is `{"code":-1,"message":"..."}`. |
-| `N:@S:{id},{value}[,{mode}]` | Signal update notification. `{mode}` is omitted for full replacement.      |
-| `N:@F:{id},{id},...`         | These signals are now final: the client releases its subscriptions.        |
+| `N:@S:{id},{value}[,{mode}]` | Signal update or seal notification. `{mode}` is omitted for full replacement. |
 
 #### Method Routing
 
@@ -96,12 +95,13 @@ Properties beginning with `_` and all functions are stripped from serialized obj
 
 When a signal's value changes, the server may send only the diff instead of the full value:
 
-| Mode     | Applies when                                               | Effect on client                                                     |
-| -------- | ---------------------------------------------------------- | -------------------------------------------------------------------- |
-| _(none)_ | General case                                               | Full replacement: `sig.value = newValue`                             |
-| `append` | Array grew by appending, or string got longer by appending | `sig.value = [...current, ...delta]` / `sig.value = current + delta` |
-| `merge`  | Plain object with changed keys                             | `sig.value = {...current, ...delta}`                                 |
-| `splice` | Array mutation with start/deleteCount/items                | `Array.prototype.splice` applied immutably                           |
+| Mode     | Name     | Applies when                                               | Effect on client                                                     |
+| -------- | -------- | ---------------------------------------------------------- | -------------------------------------------------------------------- |
+| _(none)_ | replace  | General case                                               | Full replacement: `sig.value = newValue`                             |
+| `0`      | seal     | The signal will never change again                         | Keep the value and release the signal subscription                   |
+| `1`      | append   | Array grew by appending, or string got longer by appending | `sig.value = [...current, ...delta]` / `sig.value = current + delta` |
+| `2`      | merge    | Plain object with changed keys                             | `sig.value = {...current, ...delta}`                                 |
+| `3`      | splice   | Array mutation with start/deleteCount/items                | `Array.prototype.splice` applied immutably                           |
 
 ---
 
@@ -142,11 +142,13 @@ value — `return {diff: this.diff}`, not `return {diff: this.diff.value}`.
 **Settled data opts out of the protocol.** `rpc.markFinal(sig)` promises a
 signal will never change again. It serializes with `"f": 1`, so observing it
 produces no `@W` and the server never subscribes to it; clients already
-watching it receive `N:@F:` and stop treating it as watched. The promise is
-permanent: a reconnect or process change never makes a held signal live again.
+watching it receive a debounced `N:@S:<id>,null,0` seal update and stop treating
+it as watched. The server drops its subscription immediately and batches seal
+notifications for one second. The promise is permanent: a reconnect or process
+change never makes a held signal live again.
 Two costs follow from "never watched": a final signal is only weakly held on
 the client, so it is always re-sent inline rather than as a bare `{"@S": id}`
-ref, and an old client that ignores the flag simply keeps watching.
+ref.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
@@ -214,8 +216,7 @@ Reserved methods:
 |  `@W`  | c→s | `id,id,...`       | subscribe to these signal ids                    |
 |  `@U`  | c→s | `id,id,...`       | unsubscribe                                      |
 |  `@M`  | c→s | `"Type#id",...`  | refresh held model facades by marker            |
-|  `@S`  | s→c | `id,value[,mode]` | signal `id` changed                              |
-|  `@F`  | s→c | `id,id,...`       | signals are final; release their subscriptions   |
+|  `@S`  | s→c | `id,value[,mode]` | signal `id` changed or was sealed                 |
 
 Routing on server (`callMethod`):
 

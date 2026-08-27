@@ -7,11 +7,11 @@ import {addPrefix, stripPrefix} from '../../server/forwarding.ts';
 import {createModel} from '../../server/model.ts';
 import {RPC} from '../../server/rpc.ts';
 import {
-  FINAL_SIGNALS_METHOD,
   formatNotificationMessage,
   parseWireMessage,
   parseWireParams,
   SIGNAL_UPDATE_METHOD,
+  SignalUpdateMode,
   type Transport,
   UNWATCH_SIGNALS_METHOD,
   WATCH_SIGNALS_METHOD,
@@ -457,6 +457,7 @@ describe('protocol-level forwarding', () => {
   });
 
   it('relays an upstream final notification and answers later watchers locally', async () => {
+    vi.useFakeTimers();
     const {
       brokerTransport,
       serverUpstreamTransport,
@@ -502,8 +503,10 @@ describe('protocol-level forwarding', () => {
     }
     const [root] = parseWireParams<any[]>(rootMessage.payload);
     const signalId = root.project.name['@S'];
-    const finalFrame = formatNotificationMessage(FINAL_SIGNALS_METHOD, [
+    const finalFrame = formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
       signalId,
+      null,
+      SignalUpdateMode.Seal,
     ]);
 
     browserTransport.send(
@@ -515,11 +518,12 @@ describe('protocol-level forwarding', () => {
     upstreamMessages.length = 0;
 
     brokerRpc.markFinal(project.name);
+    vi.advanceTimersByTime(1_000);
     await flush();
     expect(firstMessages).toEqual([finalFrame]);
     expect(secondMessages).toEqual([]);
 
-    // The second browser holds the cached root, which predates the @F.
+    // The second browser holds the cached root, which predates the seal update.
     second.browserTransport.send(
       formatNotificationMessage(WATCH_SIGNALS_METHOD, [signalId]),
     );

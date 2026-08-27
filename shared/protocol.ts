@@ -25,7 +25,13 @@ export const SIGNAL_UPDATE_METHOD = '@S';
 export const WATCH_SIGNALS_METHOD = '@W';
 export const UNWATCH_SIGNALS_METHOD = '@U';
 export const REFRESH_MODELS_METHOD = '@M';
-export const FINAL_SIGNALS_METHOD = '@F';
+
+export enum SignalUpdateMode {
+  Seal = 0,
+  Append = 1,
+  Merge = 2,
+  Splice = 3,
+}
 
 type ParsedCallMessage = {
   type: 'call';

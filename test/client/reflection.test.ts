@@ -3,6 +3,7 @@ import type {WireContext} from '../../client/reflection.ts';
 import {ClientReflection} from '../../client/reflection.ts';
 import type {RPCClient} from '../../client/rpc.ts';
 import {
+  SignalUpdateMode,
   UNWATCH_SIGNALS_METHOD,
   WATCH_SIGNALS_METHOD,
 } from '../../shared/protocol.ts';
@@ -521,17 +522,17 @@ describe('ClientReflection', () => {
 
       // Array append
       const arrSig = reflection.getOrCreateSignal(1, [1, 2]);
-      reflection.handleUpdate(1, [3, 4], 'append');
+      reflection.handleUpdate(1, [3, 4], SignalUpdateMode.Append);
       expect(arrSig.peek()).toEqual([1, 2, 3, 4]);
 
       // String append
       const strSig = reflection.getOrCreateSignal(2, 'hello');
-      reflection.handleUpdate(2, ' world', 'append');
+      reflection.handleUpdate(2, ' world', SignalUpdateMode.Append);
       expect(strSig.peek()).toBe('hello world');
 
       // Object merge
       const objSig = reflection.getOrCreateSignal(3, {a: 1, b: 2});
-      reflection.handleUpdate(3, {b: 3, c: 4}, 'merge');
+      reflection.handleUpdate(3, {b: 3, c: 4}, SignalUpdateMode.Merge);
       expect(objSig.peek()).toEqual({a: 1, b: 3, c: 4});
 
       // Splice
@@ -539,7 +540,7 @@ describe('ClientReflection', () => {
       reflection.handleUpdate(
         4,
         {start: 1, deleteCount: 2, items: [20, 30]},
-        'splice',
+        SignalUpdateMode.Splice,
       );
       expect(spliceSig.peek()).toEqual([1, 20, 30, 4, 5]);
 
@@ -559,21 +560,21 @@ describe('ClientReflection', () => {
     it('append array: concatenates new items', () => {
       const {reflection} = setup();
       const sig = reflection.getOrCreateSignal(1, ['a', 'b']);
-      reflection.handleUpdate(1, ['c'], 'append');
+      reflection.handleUpdate(1, ['c'], SignalUpdateMode.Append);
       expect(sig.peek()).toEqual(['a', 'b', 'c']);
     });
 
     it('append string: concatenates new string', () => {
       const {reflection} = setup();
       const sig = reflection.getOrCreateSignal(1, 'foo');
-      reflection.handleUpdate(1, 'bar', 'append');
+      reflection.handleUpdate(1, 'bar', SignalUpdateMode.Append);
       expect(sig.peek()).toBe('foobar');
     });
 
     it('merge object: spreads new properties', () => {
       const {reflection} = setup();
       const sig = reflection.getOrCreateSignal(1, {x: 1, y: 2});
-      reflection.handleUpdate(1, {y: 99, z: 3}, 'merge');
+      reflection.handleUpdate(1, {y: 99, z: 3}, SignalUpdateMode.Merge);
       expect(sig.peek()).toEqual({x: 1, y: 99, z: 3});
     });
 
@@ -583,7 +584,7 @@ describe('ClientReflection', () => {
       reflection.handleUpdate(
         1,
         {start: 1, deleteCount: 1, items: [25]},
-        'splice',
+        SignalUpdateMode.Splice,
       );
       expect(sig.peek()).toEqual([10, 25, 30, 40]);
     });
@@ -597,7 +598,7 @@ describe('ClientReflection', () => {
     it('unknown mode falls back to full replace', () => {
       const {reflection} = setup();
       const sig = reflection.getOrCreateSignal(1, 'original');
-      reflection.handleUpdate(1, 'replaced', 'unknownMode');
+      reflection.handleUpdate(1, 'replaced', 99 as SignalUpdateMode);
       expect(sig.peek()).toBe('replaced');
     });
   });

@@ -202,7 +202,7 @@ forwarded — no per-model declaration needed.
   - `expose(root: any) => void`
   - `markFinal(...signals: Signal<any>[]) => void` — Promise clients that `signals` will never change again. They serialize
 with the final flag from now on, so observing them sends no `@W`, and
-clients already watching one are told with `@F` to stop.
+clients already watching one receive a debounced `@S` seal update.
   - `notify(method: string, params: any[], clientId?: string) => void`
   - `registerModel(name: string, Ctor: ModelConstructor) => void`
 

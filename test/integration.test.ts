@@ -587,6 +587,7 @@ describe('Integration: Server <-> Client', () => {
 
     clientFrames.length = 0;
     rpc.markFinal(root.count);
+    vi.advanceTimersByTime(1_000);
     await flush();
     stop();
     rpcClient.root.count.subscribe(() => undefined);

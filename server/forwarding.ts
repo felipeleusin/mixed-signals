@@ -1,5 +1,4 @@
 import {
-  FINAL_SIGNALS_METHOD,
   formatCallMessage,
   formatErrorMessage,
   formatNotificationMessage,
@@ -9,6 +8,7 @@ import {
   REFRESH_MODELS_METHOD,
   ROOT_NOTIFICATION_METHOD,
   SIGNAL_UPDATE_METHOD,
+  SignalUpdateMode,
   type Transport,
   UNWATCH_SIGNALS_METHOD,
   WATCH_SIGNALS_METHOD,
@@ -205,15 +205,15 @@ export class ForwardedUpstream {
         return;
       }
 
-      if (parsed.method === FINAL_SIGNALS_METHOD) {
-        this.forwardFinalSignals(parseWireParams<SignalId[]>(parsed.payload));
-        return;
-      }
-
       if (parsed.method === SIGNAL_UPDATE_METHOD) {
         // Parse params: [signalId, value, mode?]
         const params = parseWireParams(parsed.payload);
         const [signalId, value, mode] = params;
+        if (mode === SignalUpdateMode.Seal) {
+          this.forwardFinalSignal(signalId as SignalId);
+          return;
+        }
+
         const subscribers = this.signalSubscriptions.get(signalId as SignalId);
         const visibleClients = this.signalVisibility.get(signalId as SignalId);
         const recipients =
@@ -227,9 +227,10 @@ export class ForwardedUpstream {
           ? addPrefix(this.prefix, value)
           : value;
 
-        const outParams = mode
-          ? [prefixedId, rewrittenValue, mode]
-          : [prefixedId, rewrittenValue];
+        const outParams =
+          mode !== undefined
+            ? [prefixedId, rewrittenValue, mode]
+            : [prefixedId, rewrittenValue];
         const message = formatNotificationMessage(
           SIGNAL_UPDATE_METHOD,
           outParams,
@@ -284,41 +285,23 @@ export class ForwardedUpstream {
     }
   }
 
-  /**
-   * Relay an upstream `@F` to the clients an update would have reached, and
-   * remember the ids: the cached root predates the `@F`, so a client that
-   * watches one of them later is answered locally.
-   */
-  private forwardFinalSignals(signalIds: SignalId[]) {
-    const idsByClient = new Map<string, SignalId[]>();
-    for (const signalId of signalIds) {
-      this.finalSignalIds.add(signalId);
-      const subscribers = this.signalSubscriptions.get(signalId);
-      const recipients =
-        subscribers && subscribers.size > 0
-          ? subscribers
-          : this.signalVisibility.get(signalId);
-      this.signalSubscriptions.delete(signalId);
-      this.signalVisibility.delete(signalId);
-      if (!recipients) continue;
+  private forwardFinalSignal(signalId: SignalId) {
+    this.finalSignalIds.add(signalId);
+    const subscribers = this.signalSubscriptions.get(signalId);
+    const recipients =
+      subscribers && subscribers.size > 0
+        ? subscribers
+        : this.signalVisibility.get(signalId);
+    this.signalSubscriptions.delete(signalId);
+    this.signalVisibility.delete(signalId);
+    if (!recipients) return;
 
-      const prefixedId = `${this.prefix}${SEP}${signalId}`;
-      for (const clientId of recipients) {
-        let ids = idsByClient.get(clientId);
-        if (!ids) {
-          ids = [];
-          idsByClient.set(clientId, ids);
-        }
-        ids.push(prefixedId);
-      }
-    }
-
-    for (const [clientId, ids] of idsByClient) {
-      this.host.send(
-        clientId,
-        formatNotificationMessage(FINAL_SIGNALS_METHOD, ids),
-      );
-    }
+    const message = formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
+      `${this.prefix}${SEP}${signalId}`,
+      null,
+      SignalUpdateMode.Seal,
+    ]);
+    for (const clientId of recipients) this.host.send(clientId, message);
   }
 
   /**
@@ -385,11 +368,11 @@ export class ForwardedUpstream {
    */
   forwardWatch(clientId: string, signalIds: SignalId[]) {
     const toWatch: SignalId[] = [];
-    let finalIds: SignalId[] | undefined;
+    const finalIds: SignalId[] = [];
 
     for (const signalId of new Set(signalIds)) {
       if (this.finalSignalIds.has(signalId)) {
-        (finalIds ??= []).push(`${this.prefix}${SEP}${signalId}`);
+        finalIds.push(`${this.prefix}${SEP}${signalId}`);
         continue;
       }
 
@@ -410,10 +393,14 @@ export class ForwardedUpstream {
         formatNotificationMessage(WATCH_SIGNALS_METHOD, toWatch),
       );
     }
-    if (finalIds) {
+    for (const signalId of finalIds) {
       this.host.send(
         clientId,
-        formatNotificationMessage(FINAL_SIGNALS_METHOD, finalIds),
+        formatNotificationMessage(SIGNAL_UPDATE_METHOD, [
+          signalId,
+          null,
+          SignalUpdateMode.Seal,
+        ]),
       );
     }
   }

@@ -70,7 +70,7 @@ export class RPC {
   /**
    * Promise clients that `signals` will never change again. They serialize
    * with the final flag from now on, so observing them sends no `@W`, and
-   * clients already watching one are told with `@F` to stop.
+   * clients already watching one receive a debounced `@S` seal update.
    */
   markFinal(...signals: Signal<any>[]) {
     this.reflection.markFinal(signals);
